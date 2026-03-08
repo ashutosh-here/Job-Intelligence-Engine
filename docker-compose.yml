@@ -1,0 +1,140 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: jie-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jie}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - jie_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-jie}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: jie-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: jie-backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-jie}
+      REDIS_URL: redis://redis:6379/0
+      API_PREFIX: ""
+      LOG_LEVEL: INFO
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-change-this-secret}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      CLEARBIT_API_KEY: ${CLEARBIT_API_KEY:-}
+      LOCAL_LLM_ENDPOINT: ${LOCAL_LLM_ENDPOINT:-http://host.docker.internal:11434/api/generate}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
+      SOURCE_ENABLE_PROXY_ROTATION: ${SOURCE_ENABLE_PROXY_ROTATION:-false}
+      SOURCE_PROXIES: ${SOURCE_PROXIES:-}
+      SOURCE_PROXY_MAX_FAILURES: ${SOURCE_PROXY_MAX_FAILURES:-3}
+      SOURCE_PROXY_COOLDOWN_SECONDS: ${SOURCE_PROXY_COOLDOWN_SECONDS:-180}
+      SOURCE_PROXY_STICKY_MINUTES: ${SOURCE_PROXY_STICKY_MINUTES:-10}
+      SOURCE_CHALLENGE_SOLVER_ENABLED: ${SOURCE_CHALLENGE_SOLVER_ENABLED:-false}
+      SOURCE_CHALLENGE_SOLVER_PROVIDER: ${SOURCE_CHALLENGE_SOLVER_PROVIDER:-signed_http_v1}
+      SOURCE_CHALLENGE_SOLVER_ENDPOINT: ${SOURCE_CHALLENGE_SOLVER_ENDPOINT:-}
+      SOURCE_CHALLENGE_SOLVER_API_KEY: ${SOURCE_CHALLENGE_SOLVER_API_KEY:-}
+      SOURCE_CHALLENGE_SOLVER_SIGNING_SECRET: ${SOURCE_CHALLENGE_SOLVER_SIGNING_SECRET:-}
+      SOURCE_CHALLENGE_RESPONSE_MAX_SKEW_SECONDS: ${SOURCE_CHALLENGE_RESPONSE_MAX_SKEW_SECONDS:-120}
+      SOURCE_CHALLENGE_RETRY_LIMIT: ${SOURCE_CHALLENGE_RETRY_LIMIT:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./artifacts:/app/artifacts
+    command: >
+      sh -c "python -m app.bootstrap && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: jie-worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-jie}
+      REDIS_URL: redis://redis:6379/0
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-change-this-secret}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      CLEARBIT_API_KEY: ${CLEARBIT_API_KEY:-}
+      LOCAL_LLM_ENDPOINT: ${LOCAL_LLM_ENDPOINT:-http://host.docker.internal:11434/api/generate}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
+      SOURCE_ENABLE_PROXY_ROTATION: ${SOURCE_ENABLE_PROXY_ROTATION:-false}
+      SOURCE_PROXIES: ${SOURCE_PROXIES:-}
+      SOURCE_PROXY_MAX_FAILURES: ${SOURCE_PROXY_MAX_FAILURES:-3}
+      SOURCE_PROXY_COOLDOWN_SECONDS: ${SOURCE_PROXY_COOLDOWN_SECONDS:-180}
+      SOURCE_PROXY_STICKY_MINUTES: ${SOURCE_PROXY_STICKY_MINUTES:-10}
+      SOURCE_CHALLENGE_SOLVER_ENABLED: ${SOURCE_CHALLENGE_SOLVER_ENABLED:-false}
+      SOURCE_CHALLENGE_SOLVER_PROVIDER: ${SOURCE_CHALLENGE_SOLVER_PROVIDER:-signed_http_v1}
+      SOURCE_CHALLENGE_SOLVER_ENDPOINT: ${SOURCE_CHALLENGE_SOLVER_ENDPOINT:-}
+      SOURCE_CHALLENGE_SOLVER_API_KEY: ${SOURCE_CHALLENGE_SOLVER_API_KEY:-}
+      SOURCE_CHALLENGE_SOLVER_SIGNING_SECRET: ${SOURCE_CHALLENGE_SOLVER_SIGNING_SECRET:-}
+      SOURCE_CHALLENGE_RESPONSE_MAX_SKEW_SECONDS: ${SOURCE_CHALLENGE_RESPONSE_MAX_SKEW_SECONDS:-120}
+      SOURCE_CHALLENGE_RETRY_LIMIT: ${SOURCE_CHALLENGE_RETRY_LIMIT:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./artifacts:/app/artifacts
+    command: >
+      sh -c "python -m app.bootstrap && celery -A worker.celery_app worker -l info"
+
+  beat:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: jie-beat
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-jie}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: celery -A worker.celery_app beat -l info
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: jie-frontend
+    environment:
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+volumes:
+  jie_pgdata:

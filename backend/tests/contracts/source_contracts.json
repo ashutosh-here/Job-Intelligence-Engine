@@ -1,0 +1,38 @@
+[
+  {
+    "name": "linkedin-recorded",
+    "adapter": "linkedin",
+    "fixture": "tests/integration/fixtures/linkedin_recorded_2026-03-08.html",
+    "source_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+    "min_jobs": 1,
+    "required_selector_keys": ["card", "title", "company", "apply"],
+    "required_job_fields": ["job_title", "company_name", "apply_link", "job_description"]
+  },
+  {
+    "name": "indeed-recorded",
+    "adapter": "indeed",
+    "fixture": "tests/integration/fixtures/indeed_recorded_2026-03-08.html",
+    "source_url": "https://www.indeed.com/jobs?q=data+engineer",
+    "min_jobs": 1,
+    "required_selector_keys": ["card", "title", "company", "apply"],
+    "required_job_fields": ["job_title", "company_name", "apply_link", "job_description"]
+  },
+  {
+    "name": "naukri-recorded",
+    "adapter": "naukri",
+    "fixture": "tests/integration/fixtures/naukri_recorded_2026-03-08.html",
+    "source_url": "https://www.naukri.com/python-jobs",
+    "min_jobs": 1,
+    "required_selector_keys": ["card", "title", "company", "apply"],
+    "required_job_fields": ["job_title", "company_name", "apply_link", "job_description"]
+  },
+  {
+    "name": "greenhouse-recorded",
+    "adapter": "greenhouse",
+    "fixture": "tests/integration/fixtures/greenhouse_recorded_2026-03-08.html",
+    "source_url": "https://boards.greenhouse.io/acme",
+    "min_jobs": 1,
+    "required_selector_keys": ["card", "title", "location", "apply"],
+    "required_job_fields": ["job_title", "company_name", "apply_link", "job_description"]
+  }
+]
